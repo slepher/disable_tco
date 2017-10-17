@@ -1,0 +1,6 @@
+{application, disable_tco,
+ [{description, "Disable tail call optimization in Erlang"},
+  {vsn, "%%VSN%%"},
+  {modules, []},
+  {registered, []},
+  {applications, [kernel, stdlib, syntax_tools]}]}.
