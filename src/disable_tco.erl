@@ -15,7 +15,7 @@
 %%% API
 %%%===================================================================
 parse_transform(Ast, _Opt) ->
-    ast_traverse:map(fun walk/2, Ast).
+    ast_traverse:map_with_state(fun walk/3, sets:new(), Ast).
 
 %%--------------------------------------------------------------------
 %% @doc
@@ -26,46 +26,72 @@ parse_transform(Ast, _Opt) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-walk(post, {function, Line, Name, Arity, Clauses}) ->
-    {function, Line, Name, Arity, walk_clauses(Clauses, {atom, Name})};
-walk(post, {'fun', Line, {clauses, Clauses}}) ->    
-    {'fun', Line, {clauses, walk_clauses(Clauses, undefined)}};
-walk(post, {named_fun, Line, Name, Clauses}) ->
-    {named_fun, Line, Name,  walk_clauses(Clauses, {var, Name})};
-walk(_Type, Node) ->
-    Node.
+walk(pre,  {function, _Line, _Name, _Arity, _Clauses} = Function, _Variables) ->
+    Variables = ast_traverse:reduce(fun walk_variables/3, sets:new(), Function),
+    {Function, Variables};
+walk(post, {function, Line, Name, Arity, Clauses}, Variables) ->
+    {NClauses, NVariables} = walk_clauses(Clauses, {atom, Name}, Variables),
+    {{function, Line, Name, Arity, NClauses}, NVariables};
+walk(post, {'fun', Line, {clauses, Clauses}}, Variables) ->  
+    {NClauses, NVariables} = walk_clauses(Clauses, undefined, Variables),
+    {{'fun', Line, {clauses, NClauses}}, NVariables};
+walk(post, {named_fun, Line, Name, Clauses}, Variables) ->
+    {NClauses, NVariables} = walk_clauses(Clauses, {atom, Name}, Variables),
+    {{named_fun, Line, Name, NClauses}, NVariables};
+walk(_Type, Node, Variables) ->
+    {Node, Variables}.
 
-walk_clauses(Clauses, Name) ->
-    lists:map(
-      fun(Clause) ->
-              walk_clause(Clause, Name)
-          end, Clauses).
+walk_variables(leaf, {var, _Line, Name}, Variables) ->
+    sets:add_element(Name, Variables);
+walk_variables(_Type, _Node, Variables) ->
+    Variables.
 
-walk_clause({clause, Line, Patterns, Guards, Body}, Name) ->
-    {clause, Line, Patterns, Guards, walk_body(Body, Name)}.
+walk_clauses(Clauses, Name, Variables) ->
+    {NClauses, NVaraibles} = 
+        lists:foldl(
+          fun(Clause, {CAcc, VAcc}) ->
+                  {NClause, NVAcc} = walk_clause(Clause, Name, VAcc),
+                  {[NClause|CAcc], NVAcc}
+          end, {[], Variables}, Clauses),
+    {lists:reverse(NClauses), NVaraibles}.
 
-walk_body([{call, _Line, {Type, _Line1, FName}, _Args} = Rep], Name) ->
+walk_clause({clause, Line, Patterns, Guards, Body}, Name, Variables) ->
+    {NBody, NVariables} = walk_body(Body, Name, Variables),
+    {{clause, Line, Patterns, Guards, NBody}, NVariables}.
+
+walk_body([{call, _Line, {Type, _Line1, FName}, _Args} = Rep], Name, Variables) ->
     if
         {Type, FName} == Name ->
-            [Rep];
+            {[Rep], Variables};
         true ->
-            [add_try_catch(Rep)]
+            {NRep, NVariables} = add_try_catch(Rep, Variables), 
+            {[NRep], NVariables}
     end;
-walk_body([{call, _Line, {remote, _Line1, _Module, _Function}, _Args} = Rep], _Name) ->
-    [add_try_catch(Rep)];
-walk_body([H|T], Name) ->
-    [H|walk_body(T, Name)];
-walk_body([], _Name) ->
-    [].
+walk_body([{call, _Line, {remote, _Line1, _Module, _Function}, _Args} = Rep], _Name, Variables) ->
+    {NRep, NVariables} = add_try_catch(Rep, Variables),
+    {[NRep], NVariables};
+walk_body([H|T], Name, Variables) ->
+    {NT, NVariables} = walk_body(T, Name, Variables),
+    {[H|NT], NVariables};
+walk_body([], _Name, Variables) ->
+    {[], Variables}.
 
-%% TODO: variable name of 'Class' and 'Exceptions' should be generate by erl_syntax_lib:new_variable_name(Used).
-add_try_catch({call, Line, _Fun, _Args} = Expr) ->
-    {'try', Line, [Expr], [], 
-     [{clause,Line, 
-       [{tuple, Line, 
-         [{var, Line, 'Class'}, {var, Line, 'Exception'}, {atom, Line, '_'}]}],
-       [],
-       [{call, Line, {remote, Line, {atom, Line, erlang}, {atom, Line, raise}}, 
-         [{var, Line, 'Class'}, {var, Line, 'Exception'}, 
-          {call, Line, {remote, Line, {atom, Line, erlang}, {atom, Line, get_stacktrace}}, []}]}]}],
-     []}.
+add_try_catch({call, Line, _Fun, _Args} = Expr, Variables) ->
+    Class = 
+        erl_syntax_lib:new_variable_name(
+          fun(N) -> list_to_atom("Class" ++ integer_to_list(N)) end, Variables),
+    Exception = 
+        erl_syntax_lib:new_variable_name(
+          fun(N) -> list_to_atom("Exception" ++ integer_to_list(N)) end, Variables),
+
+    NVariables = sets:union(sets:from_list([Class, Exception]), Variables),
+
+    {{'try', Line, [Expr], [], 
+      [{clause,Line, 
+        [{tuple, Line, 
+          [{var, Line, Class}, {var, Line, Exception}, {atom, Line, '_'}]}],
+        [],
+        [{call, Line, {remote, Line, {atom, Line, erlang}, {atom, Line, raise}}, 
+          [{var, Line, Class}, {var, Line, Exception}, 
+           {call, Line, {remote, Line, {atom, Line, erlang}, {atom, Line, get_stacktrace}}, []}]}]}],
+      []}, NVariables}.
