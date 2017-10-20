@@ -13,13 +13,12 @@ this parse transformer will trans
     
 to
 
-    a() -> 
         try 
             b()
         catch
             Class:Exception ->
                 erlang:raise(Class, Exception, erlang:get_stacktrace())
-        end.
+        end
     
 in
 
