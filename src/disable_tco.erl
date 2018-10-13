@@ -76,6 +76,30 @@ walk_body([H|T], Name, Variables) ->
 walk_body([], _Name, Variables) ->
     {[], Variables}.
 
+-ifdef('OTP_RELEASE').
+add_try_catch({call, Line, _Fun, _Args} = Expr, Variables) ->
+    Class = 
+        erl_syntax_lib:new_variable_name(
+          fun(N) -> list_to_atom("Class" ++ integer_to_list(N)) end, Variables),
+    Exception = 
+        erl_syntax_lib:new_variable_name(
+          fun(N) -> list_to_atom("Exception" ++ integer_to_list(N)) end, Variables),
+    StackTrace = 
+        erl_syntax_lib:new_variable_name(
+          fun(N) -> list_to_atom("StackTrace" ++ integer_to_list(N)) end, Variables),
+
+    NVariables = sets:union(sets:from_list([Class, Exception, StackTrace]), Variables),
+
+    {{'try', Line, [Expr], [], 
+      [{clause,Line, 
+        [{tuple, Line, 
+          [{var, Line, Class}, {var, Line, Exception}, {var, Line, StackTrace}]}],
+        [],
+        [{call, Line, {remote, Line, {atom, Line, erlang}, {atom, Line, raise}}, 
+          [{var, Line, Class}, {var, Line, Exception}, {var, Line, StackTrace}]
+         }]}],
+      []}, NVariables}.
+-else.
 add_try_catch({call, Line, _Fun, _Args} = Expr, Variables) ->
     Class = 
         erl_syntax_lib:new_variable_name(
@@ -95,3 +119,4 @@ add_try_catch({call, Line, _Fun, _Args} = Expr, Variables) ->
           [{var, Line, Class}, {var, Line, Exception}, 
            {call, Line, {remote, Line, {atom, Line, erlang}, {atom, Line, get_stacktrace}}, []}]}]}],
       []}, NVariables}.
+-endif.
