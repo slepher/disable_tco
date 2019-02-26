@@ -41,12 +41,12 @@ this parse_transform should only used in debug, it will cause performance issue.
 
 # TODO
 
-it will transform 
+it will not transform 
 
     a() ->
         a().
         
-but will not transform
+but will transform
 
     a() ->
         b(T).
