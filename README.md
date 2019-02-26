@@ -14,7 +14,7 @@ this parse transformer will trans
 to
 
         try 
-            b()
+            b(Expression3, Expression4)
         catch
             Class:Exception ->
                 erlang:raise(Class, Exception, erlang:get_stacktrace())
@@ -41,17 +41,17 @@ this parse_transform should only used in debug, it will cause performance issue.
 
 # TODO
 
-it will not transform 
+it will transform 
 
     a() ->
         a().
         
-but will transform
+but will not transform
 
     a() ->
         b(T).
         
-    b() ->
+    b(T) ->
         a().
         
 the cycle call should be detected and not transformed.
