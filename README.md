@@ -48,10 +48,10 @@ it will not transform
         
 but will transform
 
-    a() ->
+    a(T) ->
         b(T).
         
     b(T) ->
-        a().
+        a(T).
         
 the cycle call should be detected and not transformed.
